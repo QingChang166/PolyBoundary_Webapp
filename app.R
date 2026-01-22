@@ -12,10 +12,9 @@ library(gargle)
 # ============================================
 GOOGLE_SHEET_URL <- Sys.getenv("GOOGLE_SHEET_URL", "YOUR_GOOGLE_SHEET_URL_HERE")
 
-SERVICE_ACCOUNT_KEY <- Sys.getenv("GOOGLE_SERVICE_ACCOUNT_KEY_JSON")
-    
-#gs4_auth(path = SERVICE_ACCOUNT_KEY)
-gs4_deauth() 
+
+gs4_auth(path = "service-account-key.json")
+
 # ============================================
 # Load data
 # ============================================

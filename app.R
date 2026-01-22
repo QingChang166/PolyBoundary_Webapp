@@ -5,7 +5,7 @@ library(sf)
 library(tigris)
 library(shinymanager)
 library(googlesheets4)
-library(gargle)
+#library(gargle)
 library(jsonlite)
 # ============================================
 # CONFIGURATION

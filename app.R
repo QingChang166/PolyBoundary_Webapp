@@ -186,7 +186,7 @@ ui <- fluidPage(
       uiOutput("save_status"),
       uiOutput("previous_answer_info"),
       hr(),
-      h5("Your Note"),
+      h5("Your Note (DON'T FORGET TO SAVE YOUR NOTE!)"),
       textAreaInput("note", label = NULL, value = "", placeholder = "Optional note...", width = "100%", height = "90px"),
       actionButton("save_note", "Save note", width = "100%", class = "btn-sm pf-btn btn-outline-secondary"),
       hr(),
@@ -345,15 +345,57 @@ server <- function(input, output, session) {
     gadm_geom %>% filter(change_level == row$change_level, new_id %in% ids)
   })
   
+  
+  # Display AI info
   output$agent_info <- renderUI({
-    infor <- summary_table[idx(), ]
+    infor <- summary_table[idx(), , drop = FALSE]
+    
+    country <- if ("country" %in% names(infor)) infor$country[1] else infor$iso3c_prev[1]
+    algo_decision <- infor$type[1]
+    openai_decision <- infor$openai_assessment[1]
+    openai_explanation <- infor$openai_explanation[1]
+    openai_source <- infor$openai_sources[1]
+    
+    split_bullets <- function(x) {
+      if (is.null(x) || length(x) == 0 || is.na(x)) return(character(0))
+      x <- as.character(x)
+      items <- unlist(strsplit(x, "\\r?\\n|•", perl = TRUE))
+      items <- unlist(strsplit(paste(items, collapse = "\n"), "\\r?\\n", perl = TRUE))
+      items <- trimws(items)
+      items <- items[nzchar(items)]
+      items <- sub("^[-*]+\\s*", "", items)
+      items
+    }
+    
+    split_lines_as_bullets <- function(x) {
+      if (is.null(x) || length(x) == 0 || is.na(x)) return(character(0))
+      x <- as.character(x)
+      items <- unlist(strsplit(x, "\\r?\\n", perl = TRUE))
+      if (length(items) <= 1 && grepl("•", x, fixed = TRUE)) {
+        items <- unlist(strsplit(x, "•", fixed = TRUE))
+      }
+      items <- trimws(items)
+      items <- items[nzchar(items)]
+      items <- sub("^[-*•]+\\s*", "", items)
+      items
+    }
+    
+    expl_items <- split_bullets(openai_explanation)
+    src_items  <- split_lines_as_bullets(openai_source)
+    
     tagList(
-      p(paste0("Algorithm: ", infor$type)),
-      p(paste0("OpenAI Assessment: ", infor$openai_assessment)),
-      p("Explanation:"),
-      tags$ul(lapply(unlist(strsplit(as.character(infor$openai_explanation), "\\n|•")), function(x) if(nzchar(trimws(x))) tags$li(x)))
+      p(paste0("Algorithm prediction: ", algo_decision)),
+      p(paste0("Country: ", country)),
+      p(paste0("OpenAI assessment: ", openai_decision)),
+      
+      p("OpenAI explanation:"),
+      if (length(expl_items) > 0) tags$ul(lapply(expl_items, tags$li)) else p("(none)"),
+      
+      p("OpenAI sources:"),
+      if (length(src_items) > 0) tagList(lapply(src_items, function(s) p(paste0("• ", s)))) else p("(none)")
     )
   })
+  
   
   observeEvent(input$before_only, { mode("before") })
   observeEvent(input$after_only,  { mode("after")  })
@@ -385,53 +427,10 @@ server <- function(input, output, session) {
     }
   })
   
-  #observeEvent(input$prev, { i <- idx() - 1; if(i < 1) i <- n; idx(i); save_status(""); just_answered(NULL) })
-  #observeEvent(input$next_butt, { i <- idx() + 1; if(i > n) i <- 1; idx(i); save_status(""); just_answered(NULL) })
+  observeEvent(input$prev, { i <- idx() - 1; if(i < 1) i <- n; idx(i); save_status(""); just_answered(NULL) })
+  observeEvent(input$next_butt, { i <- idx() + 1; if(i > n) i <- 1; idx(i); save_status(""); just_answered(NULL) })
   
-  # Navigation with skip warning
-  observeEvent(input$prev, {
-    current_uid <- summary_table[idx(), ]$unique_id
-    cached <- db_cache()
-    current_answer <- cached[cached$unique_id == current_uid, ]
-    
-    # Warn if current case is unanswered
-    if (nrow(current_answer) == 0 || is.na(current_answer$user_answer[1]) || 
-        current_answer$user_answer[1] == "") {
-      showNotification(
-        "⚠️ You haven't answered this case yet!",
-        type = "warning",
-        duration = 3
-      )
-    }
-    
-    i <- idx() - 1
-    if(i < 1) i <- n
-    idx(i)
-    save_status("")
-    just_answered(NULL)
-  })
-  
-  observeEvent(input$next_butt, {
-    current_uid <- summary_table[idx(), ]$unique_id
-    cached <- db_cache()
-    current_answer <- cached[cached$unique_id == current_uid, ]
-    
-    # Warn if current case is unanswered
-    if (nrow(current_answer) == 0 || is.na(current_answer$user_answer[1]) || 
-        current_answer$user_answer[1] == "") {
-      showNotification(
-        "⚠️ You haven't answered this case yet!",
-        type = "warning",
-        duration = 3
-      )
-    }
-    
-    i <- idx() + 1
-    if(i > n) i <- 1
-    idx(i)
-    save_status("")
-    just_answered(NULL)
-  })
+
   
   observeEvent(input$correct,  { upsert_label(answer = "Yes", note = input$note) })
   observeEvent(input$wrong,    { upsert_label(answer = "No", note = input$note) })

@@ -156,16 +156,9 @@ ui <- fluidPage(
   .save-status { padding: 5px; margin: 5px 0; border-radius: 3px; font-size: 10px; text-align: center; }
   .save-success { background-color: #d4edda; color: #155724; }
   .save-error { background-color: #f8d7da; color: #721c24; }
-  .connection-status { padding: 8px; margin: 10px 0; border-radius: 4px; font-size: 11px; text-align: center; }
-  .status-connected { background-color: #d4edda; color: #155724; }
-  .status-disconnected { background-color: #f8d7da; color: #721c24; }
 ")),
   
   titlePanel("Information Panel"),
-  
-  fluidRow(
-    column(12, uiOutput("connection_status"), style = "padding: 5px 15px;")
-  ),
   
   fluidRow(
     column(12, uiOutput("progress_info"), style = "padding: 5px 15px;")
@@ -210,20 +203,27 @@ ui <- fluidPage(
   )
 )
 
-# Secure UI
-ui <- secure_app(ui, enable_admin = TRUE)
+# ============================================
+# CORRECT WAY: Use SQLite for shinymanager
+# ============================================
+# Option 1: Simple authentication without database
+credentials <- data.frame(
+  user = c("admin", "user1"),
+  password = c("123456", "user123"),
+  admin = c(TRUE, FALSE),
+  stringsAsFactors = FALSE
+)
+
+ui <- secure_app(ui, enable_admin = FALSE)
 
 # ============================================
 # SERVER
 # ============================================
 server <- function(input, output, session) {
   
-  # Authentication - use SQLite database with hashed passwords
+  # FIXED: Use check_credentials with dataframe
   res_auth <- secure_server(
-    check_credentials = check_credentials(
-      "database.sqlite",
-      passphrase = Sys.getenv("SHINY_MANAGER_PASSPHRASE")
-    )
+    check_credentials = check_credentials(credentials)
   )
   
   # Reactive state
@@ -234,14 +234,15 @@ server <- function(input, output, session) {
   reviewed_cases <- reactiveVal(numeric())
   db_cache <- reactiveVal(data.frame())
   just_answered <- reactiveVal(NULL)
-  connection_ok <- reactiveVal(FALSE)
   
-  # Initial Load from Supabase
+  # Initial Load from Database
   isolate({
     tryCatch({
-      existing_data <- get_all_responses()
+      con <- get_db_conn()
+      on.exit(dbDisconnect(con))
+      existing_data <- dbGetQuery(con, "SELECT * FROM responses")
       
-      if (!is.null(existing_data) && nrow(existing_data) > 0) {
+      if (nrow(existing_data) > 0) {
         db_cache(existing_data)
         reviewed_ids <- as.numeric(existing_data$unique_id)
         reviewed_cases(reviewed_ids)
@@ -250,36 +251,13 @@ server <- function(input, output, session) {
         if (length(unreviewed_ids) > 0) {
           idx(which(summary_table$unique_id == min(unreviewed_ids))[1])
         }
-        
-        connection_ok(TRUE)
-        showNotification("✓ Connected to Supabase", type = "message", duration = 3)
-      } else {
-        connection_ok(TRUE)
-        showNotification("No existing data found", type = "message", duration = 3)
       }
-      
     }, error = function(e) {
-      connection_ok(FALSE)
-      showNotification(
-        paste("⚠️ Cannot connect to Supabase:", e$message, 
-              "\nPlease check your SUPABASE_URL and SUPABASE_ANON_KEY environment variables."), 
-        type = "error",
-        duration = 10
-      )
+      showNotification("Database connection failed or table empty", type = "error")
     })
   })
   
-  # Connection status indicator
-  output$connection_status <- renderUI({
-    if (connection_ok()) {
-      div(class = "connection-status status-connected", "✓ Connected to Supabase")
-    } else {
-      div(class = "connection-status status-disconnected", 
-          "⚠️ Not connected to Supabase - data will not be saved")
-    }
-  })
-  
-  # Upsert function using REST API
+  # Database Upsert Function
   upsert_label <- function(answer = NA_character_, note = NA_character_) {
     row <- summary_table[idx(), , drop = FALSE]
     uid <- row$unique_id[1]
@@ -293,29 +271,42 @@ server <- function(input, output, session) {
       if (is.na(note))   note   <- existing_row$note[1]
     }
     
-    success <- upsert_response(
-      unique_id = uid,
-      user_answer = answer,
-      note = note,
-      username = current_user,
-      country = as.character(row$iso3c_prev[1]),
-      algo_decision = as.character(row$type[1]),
-      openai_decision = as.character(row$openai_assessment[1])
-    )
+    con <- get_db_conn()
+    on.exit(dbDisconnect(con))
     
-    if (success) {
-      save_status(paste("✓ Saved to Supabase", format(Sys.time(), "%H:%M:%S")))
+    query <- "
+      INSERT INTO responses (unique_id, user_answer, note, timestamp, username, country, algo_decision, openai_decision)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      ON CONFLICT (unique_id) 
+      DO UPDATE SET 
+        user_answer = EXCLUDED.user_answer,
+        note = EXCLUDED.note,
+        timestamp = EXCLUDED.timestamp,
+        username = EXCLUDED.username;
+    "
+    
+    tryCatch({
+      dbExecute(con, query, list(
+        uid, 
+        ifelse(is.na(answer), "", as.character(answer)), 
+        ifelse(is.na(note), "", as.character(note)), 
+        as.character(Sys.time()), 
+        current_user, 
+        as.character(row$iso3c_prev[1]), 
+        as.character(row$type[1]), 
+        as.character(row$openai_assessment[1])
+      ))
+      
+      save_status(paste("✓ Database Updated", format(Sys.time(), "%H:%M:%S")))
       just_answered(uid)
       
-      # Refresh cache
-      new_data <- get_all_responses()
-      if (!is.null(new_data) && nrow(new_data) > 0) {
-        db_cache(new_data)
-        reviewed_cases(as.numeric(new_data$unique_id))
-      }
-    } else {
-      save_status("✗ Failed to save - check connection")
-    }
+      new_data <- dbGetQuery(con, "SELECT * FROM responses")
+      db_cache(new_data)
+      reviewed_cases(as.numeric(new_data$unique_id))
+      
+    }, error = function(e) {
+      save_status(paste("✗ Error:", substr(e$message, 1, 50)))
+    })
   }
   
   output$save_status <- renderUI({
@@ -338,10 +329,7 @@ server <- function(input, output, session) {
           span(class = paste("case-indicator", if(is_reviewed) "case-reviewed" else "case-current"),
                style = "margin-left: 10px;", if(is_reviewed) "✓ Reviewed" else "○ Not reviewed")
       ),
-      div(class = "progress-bar-container", 
-          div(class = "progress-bar-fill", 
-              style = paste0("width: ", progress_pct, "%;"), 
-              if(progress_pct > 10) paste0(progress_pct, "%") else ""))
+      div(class = "progress-bar-container", div(class = "progress-bar-fill", style = paste0("width: ", progress_pct, "%;"), if(progress_pct > 10) paste0(progress_pct, "%") else ""))
     )
   })
   
@@ -363,8 +351,7 @@ server <- function(input, output, session) {
       p(paste0("Algorithm: ", infor$type)),
       p(paste0("OpenAI Assessment: ", infor$openai_assessment)),
       p("Explanation:"),
-      tags$ul(lapply(unlist(strsplit(as.character(infor$openai_explanation), "\\n|•")), 
-                     function(x) if(nzchar(trimws(x))) tags$li(x)))
+      tags$ul(lapply(unlist(strsplit(as.character(infor$openai_explanation), "\\n|•")), function(x) if(nzchar(trimws(x))) tags$li(x)))
     )
   })
   
@@ -372,14 +359,7 @@ server <- function(input, output, session) {
   observeEvent(input$after_only,  { mode("after")  })
   observeEvent(input$show_both,   { mode("both")   })
   
-  output$map <- renderLeaflet({ 
-    leaflet() %>% 
-      addTiles(
-        urlTemplate = "http://mt0.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}&s=Ga", 
-        attribution = 'Google',
-        group = "base"
-      )
-  })
+  output$map <- renderLeaflet({ leaflet() %>% addTiles() })
   
   observe({
     gaul <- gaul_poly(); gadm <- gadm_poly(); m <- mode()
@@ -392,58 +372,14 @@ server <- function(input, output, session) {
       map_proxy <- map_proxy %>% addPolygons(data = gadm, color = "red", weight = 2, label = ~name_curr)
     }
     
-    all_bounds <- rbind(if(nrow(gaul)>0) st_bbox(gaul) else NULL, 
-                        if(nrow(gadm)>0) st_bbox(gadm) else NULL)
+    all_bounds <- rbind(if(nrow(gaul)>0) st_bbox(gaul) else NULL, if(nrow(gadm)>0) st_bbox(gadm) else NULL)
     if (!is.null(all_bounds)) {
-      map_proxy %>% fitBounds(min(all_bounds[,1]), min(all_bounds[,2]), 
-                              max(all_bounds[,3]), max(all_bounds[,4]))
+      map_proxy %>% fitBounds(min(all_bounds[,1]), min(all_bounds[,2]), max(all_bounds[,3]), max(all_bounds[,4]))
     }
   })
   
-  # Navigation with skip warning
-  observeEvent(input$prev, {
-    current_uid <- summary_table[idx(), ]$unique_id
-    cached <- db_cache()
-    current_answer <- cached[cached$unique_id == current_uid, ]
-    
-    # Warn if current case is unanswered
-    if (nrow(current_answer) == 0 || is.na(current_answer$user_answer[1]) || 
-        current_answer$user_answer[1] == "") {
-      showNotification(
-        "⚠️ You haven't answered this case yet!",
-        type = "warning",
-        duration = 3
-      )
-    }
-    
-    i <- idx() - 1
-    if(i < 1) i <- n
-    idx(i)
-    save_status("")
-    just_answered(NULL)
-  })
-  
-  observeEvent(input$next_butt, {
-    current_uid <- summary_table[idx(), ]$unique_id
-    cached <- db_cache()
-    current_answer <- cached[cached$unique_id == current_uid, ]
-    
-    # Warn if current case is unanswered
-    if (nrow(current_answer) == 0 || is.na(current_answer$user_answer[1]) || 
-        current_answer$user_answer[1] == "") {
-      showNotification(
-        "⚠️ You haven't answered this case yet!",
-        type = "warning",
-        duration = 3
-      )
-    }
-    
-    i <- idx() + 1
-    if(i > n) i <- 1
-    idx(i)
-    save_status("")
-    just_answered(NULL)
-  })
+  observeEvent(input$prev, { i <- idx() - 1; if(i < 1) i <- n; idx(i); save_status(""); just_answered(NULL) })
+  observeEvent(input$next_butt, { i <- idx() + 1; if(i > n) i <- 1; idx(i); save_status(""); just_answered(NULL) })
   
   observeEvent(input$correct,  { upsert_label(answer = "Yes", note = input$note) })
   observeEvent(input$wrong,    { upsert_label(answer = "No", note = input$note) })
@@ -466,45 +402,27 @@ server <- function(input, output, session) {
     cached <- db_cache()
     prev <- cached[cached$unique_id == uid, ]
     
-    if (nrow(prev) > 0 && !is.na(prev$user_answer[1]) && prev$user_answer[1] != "") {
-      ans_class <- switch(prev$user_answer[1], 
-                          "Yes"="badge-success", 
-                          "No"="badge-danger", 
-                          "Not Sure"="badge-warning", 
-                          "badge-secondary")
-      
-      # Format timestamp
-      timestamp_text <- ""
-      if (!is.na(prev$timestamp[1]) && prev$timestamp[1] != "") {
-        tryCatch({
-          ts <- as.POSIXct(prev$timestamp[1])
-          timestamp_text <- paste0(" • ", format(ts, "%Y-%m-%d %H:%M"))
-        }, error = function(e) {
-          timestamp_text <- ""
-        })
-      }
-      
+    if (nrow(prev) > 0) {
+      ans_class <- switch(prev$user_answer[1], "Yes"="badge-success", "No"="badge-danger", "Not Sure"="badge-warning", "badge-secondary")
       div(style = "padding: 8px; background: #f8f9fa; border-left: 3px solid #007bff;",
-          p(style="font-size:11px; font-weight:bold; margin-bottom: 5px;", "Previous Review:"),
+          p(style="font-size:11px; font-weight:bold;", "Previous Review:"),
           span(class=paste("badge", ans_class), prev$user_answer[1]),
-          span(style="font-size:10px; color:#666;", 
-               paste0(" by ", prev$username[1], timestamp_text))
+          span(style="font-size:10px; color:#666;", paste0(" by ", prev$username[1]))
       )
     } else {
-      div(class="unanswered-warning", 
-          p(class="unanswered-warning-text", "⚠️ Needs review"))
+      div(class="unanswered-warning", p(class="unanswered-warning-text", "⚠️ Needs review"))
     }
   })
   
   output$download_labels <- downloadHandler(
     filename = function() paste0("user_labels_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".csv"),
     content = function(file) {
-      data <- get_all_responses()
-      if (!is.null(data) && nrow(data) > 0) {
-        write.csv(data, file, row.names = FALSE)
-      } else {
-        write.csv(data.frame(message = "No data available"), file, row.names = FALSE)
-      }
+      con <- get_db_conn()
+      data <- dbGetQuery(con, "SELECT * FROM responses")
+      dbDisconnect(con)
+      write.csv(data, file, row.names = FALSE)
     }
   )
 }
+
+shinyApp(ui, server)

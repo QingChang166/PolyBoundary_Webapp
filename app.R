@@ -12,8 +12,14 @@ library(jsonlite)
 # ============================================
 GOOGLE_SHEET_URL <- Sys.getenv("GOOGLE_SHEET_URL", "YOUR_GOOGLE_SHEET_URL_HERE")
 
-gs4_auth(path = Sys.getenv("GOOGLE_SERVICE_ACCOUNT_KEY_JSON"))
+key_json <- Sys.getenv("GOOGLE_SERVICE_ACCOUNT_KEY_JSON", unset = "")
+if (!nzchar(key_json)) {
+  stop("Missing GOOGLE_SERVICE_ACCOUNT_KEY_JSON on Connect Cloud (set it as a Secret).")
+}
 
+key_file <- tempfile(fileext = ".json")
+writeLines(key_json, key_file)
+gs4_auth(path = key_file)
 # ============================================
 # Load data
 # ============================================

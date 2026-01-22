@@ -22,10 +22,11 @@ if (!file.exists(SERVICE_ACCOUNT_KEY)) {
 # Authenticate Google Sheets
 # ============================================
 gs4_auth(
-  path = SERVICE_ACCOUNT_KEY,
-  cache = FALSE,
-  use_oob = FALSE
-)
+  token = gargle::credentials_service_account(
+    scopes = "https://www.googleapis.com/auth/spreadsheets",
+    path = SERVICE_ACCOUNT_KEY
+  )
+) 
 
 # ============================================
 # Load data

@@ -11,26 +11,40 @@ library(gargle)
 # CONFIGURATION
 # ============================================
 GOOGLE_SHEET_URL <- Sys.getenv("GOOGLE_SHEET_URL", "YOUR_GOOGLE_SHEET_URL_HERE")
-SERVICE_ACCOUNT_KEY <- "service-account-key.json"
 
-# Check if required files exist
-if (!file.exists(SERVICE_ACCOUNT_KEY)) {
-  stop("ERROR: service-account-key.json not found. Please add your Google service account key file.")
-}
+service_email <- Sys.getenv("GOOGLE_SERVICE_ACCOUNT_EMAIL")
+private_key <- Sys.getenv("GOOGLE_PRIVATE_KEY")
 
-# ============================================
-# Authenticate Google Sheets
-# ============================================
-gs4_auth(
-  token = gargle::credentials_service_account(
+
+credentials_list <- list(
+      type = "service_account",
+      project_id = Sys.getenv("GOOGLE_PROJECT_ID"),
+      private_key_id = Sys.getenv("GOOGLE_PRIVATE_KEY_ID"),
+      private_key = gsub("\\\\n", "\n", private_key),
+      client_email = service_email,
+      client_id = Sys.getenv("GOOGLE_CLIENT_ID"),
+      auth_uri = "https://accounts.google.com/o/oauth2/auth",
+      token_uri = "https://oauth2.googleapis.com/token",
+      auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs",
+      client_x509_cert_url = paste0("https://www.googleapis.com/robot/v1/metadata/x509/", 
+                                    gsub("@", "%40", service_email))
+)
+    
+temp_key <- tempfile(fileext = ".json")
+jsonlite::write_json(credentials_list, temp_key, auto_unbox = TRUE)
+    
+token <- gargle::credentials_service_account(
     scopes = c(
-      "https://www.googleapis.com/auth/spreadsheets",
-      "https://www.googleapis.com/auth/drive"
-    ),
-    path = SERVICE_ACCOUNT_KEY
-  )
-) 
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+      ),
+      path = temp_key,
+      subject = NULL
+    )
+    
 
+gs4_auth(token = token)
+unlink(temp_key)
 # ============================================
 # Load data
 # ============================================

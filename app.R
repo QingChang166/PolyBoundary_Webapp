@@ -12,14 +12,32 @@ library(jsonlite)
 # ============================================
 GOOGLE_SHEET_URL <- Sys.getenv("GOOGLE_SHEET_URL", "YOUR_GOOGLE_SHEET_URL_HERE")
 
+# ---- Google Sheets auth (service account via Connect secret) ----
 key_json <- Sys.getenv("GOOGLE_SERVICE_ACCOUNT_KEY_JSON", unset = "")
 if (!nzchar(key_json)) {
-  stop("Missing GOOGLE_SERVICE_ACCOUNT_KEY_JSON on Connect Cloud (set it as a Secret).")
+  stop("Missing GOOGLE_SERVICE_ACCOUNT_KEY_JSON. Set it as a Secret in Posit Connect Cloud.")
 }
 
+# If the JSON was pasted as a single line containing '\\n', turn those into real newlines
+key_json <- gsub("\\\\n", "\n", key_json)
+
+# Write the JSON to a temp file (writeChar avoids weird line splitting)
 key_file <- tempfile(fileext = ".json")
-writeLines(key_json, key_file)
-gs4_auth(path = key_file)
+writeChar(key_json, key_file, eos = NULL)
+
+# Optional: validate JSON (helps fail fast with a clearer error)
+tryCatch(
+  jsonlite::fromJSON(key_file),
+  error = function(e) stop("Service account JSON is not valid. Re-check the Secret value. Details: ", e$message)
+)
+
+# Fetch a token explicitly using the service account
+token <- gargle::token_fetch(
+  scopes = "https://www.googleapis.com/auth/spreadsheets",
+  cred   = gargle::credentials_service_account(path = key_file)
+)
+
+googlesheets4::gs4_auth(token = token)
 # ============================================
 # Load data
 # ============================================

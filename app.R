@@ -25,14 +25,21 @@ library(dbplyr)
 # ============================================
 # DATABASE CONNECTION CONFIGURATION
 # ============================================
+
 get_db_conn <- function() {
+  # RECOMMENDED: Use Supabase Connection Pooler for cloud deployments
+  # This resolves IPv6/network issues with Posit Connect Cloud
+  
+  pooler_host <- Sys.getenv("DB_POOLER_HOST", "aws-0-us-east-1.pooler.supabase.com")
+  
   dbConnect(
     Postgres(),
     dbname   = Sys.getenv("DB_NAME", "postgres"),
-    host     = Sys.getenv("DB_HOST", "db.cvzzrocsuglhumcqqykp.supabase.co"),
-    port     = as.integer(Sys.getenv("DB_PORT", "5432")),
-    user     = Sys.getenv("DB_USER", "postgres"),
-    password = Sys.getenv("DB_PASSWORD")
+    host     = pooler_host,  # Use pooler, not direct connection
+    port     = as.integer(Sys.getenv("DB_PORT", "6543")),  # Pooler port
+    user     = Sys.getenv("DB_USER", "postgres.cvzzrocsuglhumcqqykp"),
+    password = Sys.getenv("DB_PASSWORD"),
+    sslmode  = "require"  # Important for Supabase
   )
 }
 

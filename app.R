@@ -46,66 +46,66 @@ get_db_conn <- function() {
 # ============================================
 # Initialize credentials table if needed
 # ============================================
-initialize_credentials <- function() {
-  tryCatch({
-    con <- get_db_conn()
-    on.exit(dbDisconnect(con))
+#initialize_credentials <- function() {
+#  tryCatch({
+#    con <- get_db_conn()
+#    on.exit(dbDisconnect(con))
     
     # Check if credentials table exists
-    if (!dbExistsTable(con, "credentials")) {
+#    if (!dbExistsTable(con, "credentials")) {
       # Create credentials table
-      create_db(
-        credentials_data = data.frame(
-          user = c("admin"),
-          password = c("admin123"), # Change this!
-          admin = c(TRUE),
-          stringsAsFactors = FALSE
-        ),
-        sqlite_path = ":memory:", # Temporary, will be replaced
-        passphrase = Sys.getenv("SHINY_MANAGER_PASSPHRASE", "default_passphrase")
-      )
+#      create_db(
+#        credentials_data = data.frame(
+#          user = c("admin"),
+#          password = c("admin123"), # Change this!
+#          admin = c(TRUE),
+#          stringsAsFactors = FALSE
+#        ),
+#        sqlite_path = ":memory:", # Temporary, will be replaced
+#        passphrase = Sys.getenv("SHINY_MANAGER_PASSPHRASE", "default_passphrase")
+#      )
       
       # Then manually create in Postgres
-      dbExecute(con, "
-        CREATE TABLE IF NOT EXISTS credentials (
-          user TEXT PRIMARY KEY,
-          password TEXT,
-          admin BOOLEAN,
-          expire TEXT,
-          applications TEXT
-        )
-      ")
+#      dbExecute(con, "
+#        CREATE TABLE IF NOT EXISTS credentials (
+#          user TEXT PRIMARY KEY,
+#          password TEXT,
+#          admin BOOLEAN,
+#          expire TEXT,
+#          applications TEXT
+#        )
+#      ")
       
       # Hash password (you should use bcrypt in production)
-      dbExecute(con, "
-        INSERT INTO credentials (user, password, admin)
-        VALUES ('admin', '$2a$10$...', TRUE)
-        ON CONFLICT (user) DO NOTHING
-      ")
-    }
+ #     dbExecute(con, "
+#        INSERT INTO credentials (user, password, admin)
+#        VALUES ('admin', '$2a$10$...', TRUE)
+#        ON CONFLICT (user) DO NOTHING
+#      ")
+ #   }
     
     # Create responses table if not exists
-    if (!dbExistsTable(con, "responses")) {
-      dbExecute(con, "
-        CREATE TABLE IF NOT EXISTS responses (
-          unique_id INTEGER PRIMARY KEY,
-          user_answer TEXT,
-          note TEXT,
-          timestamp TIMESTAMP,
-          username TEXT,
-          country TEXT,
-          algo_decision TEXT,
-          openai_decision TEXT
-        )
-      ")
-    }
-  }, error = function(e) {
-    warning("Could not initialize database: ", e$message)
-  })
-}
+  #  if (!dbExistsTable(con, "responses")) {
+  #    dbExecute(con, "
+  #      CREATE TABLE IF NOT EXISTS responses (
+  #        unique_id INTEGER PRIMARY KEY,
+  #        user_answer TEXT,
+  #        note TEXT,
+  #        timestamp TIMESTAMP,
+  #        username TEXT,
+  #        country TEXT,
+  #        algo_decision TEXT,
+  #        openai_decision TEXT
+  #      )
+  #    ")
+  #  }
+  #}, error = function(e) {
+  #  warning("Could not initialize database: ", e$message)
+  #})
+#}
 
 # Initialize on startup
-initialize_credentials()
+#initialize_credentials()
 
 # ============================================
 # Load local RDS data
@@ -214,7 +214,7 @@ credentials <- data.frame(
   stringsAsFactors = FALSE
 )
 
-ui <- secure_app(ui, enable_admin = FALSE)
+ui <- secure_app(ui, enable_admin = T)
 
 # ============================================
 # SERVER

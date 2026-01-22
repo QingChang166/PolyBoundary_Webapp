@@ -207,12 +207,12 @@ ui <- fluidPage(
 # CORRECT WAY: Use SQLite for shinymanager
 # ============================================
 # Option 1: Simple authentication without database
-credentials <- data.frame(
-  user = c("admin", "user1"),
-  password = c("123456", "user123"),
-  admin = c(TRUE, FALSE),
-  stringsAsFactors = FALSE
-)
+#credentials <- data.frame(
+#  user = c("admin", "user1"),
+#  password = c("123456", "user123"),
+#  admin = c(TRUE, FALSE),
+#  stringsAsFactors = FALSE
+#)
 
 ui <- secure_app(ui, enable_admin = T)
 
@@ -222,8 +222,15 @@ ui <- secure_app(ui, enable_admin = T)
 server <- function(input, output, session) {
   
   # FIXED: Use check_credentials with dataframe
+  #res_auth <- secure_server(
+  #  check_credentials = check_credentials(credentials)
+  #)
+  
   res_auth <- secure_server(
-    check_credentials = check_credentials(credentials)
+    check_credentials = check_credentials(
+      "credentials.sqlite",
+      passphrase = Sys.getenv("SHINY_MANAGER_PASSPHRASE")
+    )
   )
   
   # Reactive state

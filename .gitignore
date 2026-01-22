@@ -1,6 +1,6 @@
 # Sensitive files - NEVER COMMIT
 
-credentials.sqlite
+
 .Renviron
 
 # R files

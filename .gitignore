@@ -1,6 +1,5 @@
 # Sensitive files - NEVER COMMIT
 service-account-key.json
-*.json
 credentials.sqlite
 .Renviron
 

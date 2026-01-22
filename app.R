@@ -12,8 +12,8 @@ library(jsonlite)
 # ============================================
 GOOGLE_SHEET_URL <- Sys.getenv("GOOGLE_SHEET_URL", "YOUR_GOOGLE_SHEET_URL_HERE")
 
-#gs4_auth(path = "service-account-key.json")
-gs4_deauth()
+gs4_auth(path = Sys.getenv("GOOGLE_SERVICE_ACCOUNT_KEY_JSON"))
+
 # ============================================
 # Load data
 # ============================================

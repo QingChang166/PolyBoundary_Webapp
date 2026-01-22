@@ -17,9 +17,16 @@ options(gargle_quiet = FALSE)
 options(gargle_oauth_cache = FALSE)  # don't try to cache OAuth tokens on Connect
 
 b64 <- Sys.getenv("GOOGLE_SERVICE_ACCOUNT_KEY_JSON_B64", unset = "")
+
+message("B64 chars: ", nchar(b64))
+message("B64 ends with: ", substr(b64, max(1, nchar(b64)-10), nchar(b64)))
 if (!nzchar(b64)) stop("Missing GOOGLE_SERVICE_ACCOUNT_KEY_JSON_B64 secret.")
 
 key_json <- rawToChar(openssl::base64_decode(b64))
+key_json <- rawToChar(openssl::base64_decode(b64))
+message("JSON chars: ", nchar(key_json))
+message("JSON starts with: ", substr(trimws(key_json), 1, 1))
+message("JSON ends with: ", substr(trimws(key_json), nchar(trimws(key_json)), nchar(trimws(key_json))))
 
 key_file <- tempfile(fileext = ".json")
 writeChar(key_json, key_file, eos = NULL)

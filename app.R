@@ -14,17 +14,15 @@ GOOGLE_SHEET_URL <- Sys.getenv("GOOGLE_SHEET_URL", "YOUR_GOOGLE_SHEET_URL_HERE")
 
 SERVICE_ACCOUNT_KEY <- Sys.getenv("GOOGLE_SERVICE_ACCOUNT_KEY_JSON")
     
-gs4_auth(path = SERVICE_ACCOUNT_KEY)
-
+#gs4_auth(path = SERVICE_ACCOUNT_KEY)
+gs4_deauth() 
 # ============================================
 # Load data
 # ============================================
-# Check if running locally or on server
-data_path <- if (dir.exists("data")) "data" else "."
 
-summary_table <- read_rds(file.path(data_path, "boundary_change_verification_summary_results.rds"))
-gaul_geom <- read_rds(file.path(data_path, "gaul_geometries_for_helpapp.rds"))
-gadm_geom <- read_rds(file.path(data_path, "gadm_geometries_for_helpapp.rds"))
+summary_table <- read_rds("boundary_change_verification_summary_results.rds")
+gaul_geom <- read_rds("gaul_geometries_for_helpapp.rds")
+gadm_geom <- read_rds("gadm_geometries_for_helpapp.rds")
 
 summary_table <- summary_table %>%
   mutate(unique_id = row_number())

@@ -21,7 +21,11 @@ if (!file.exists(SERVICE_ACCOUNT_KEY)) {
 # ============================================
 # Authenticate Google Sheets
 # ============================================
-gs4_auth(path = SERVICE_ACCOUNT_KEY)
+gs4_auth(
+  path = SERVICE_ACCOUNT_KEY,
+  cache = FALSE,
+  use_oob = FALSE
+)
 
 # ============================================
 # Load data
@@ -254,6 +258,7 @@ ui <- secure_app(ui, enable_admin = TRUE)
 # SERVER
 # ============================================
 server <- function(input, output, session) {
+  
   
   # Password authentication
   passphrase <- Sys.getenv("SHINY_MANAGER_PASSPHRASE")

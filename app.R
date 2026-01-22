@@ -23,7 +23,10 @@ if (!file.exists(SERVICE_ACCOUNT_KEY)) {
 # ============================================
 gs4_auth(
   token = gargle::credentials_service_account(
-    scopes = "https://www.googleapis.com/auth/spreadsheets",
+    scopes = c(
+      "https://www.googleapis.com/auth/spreadsheets",
+      "https://www.googleapis.com/auth/drive"
+    ),
     path = SERVICE_ACCOUNT_KEY
   )
 ) 

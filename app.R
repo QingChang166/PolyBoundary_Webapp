@@ -12,26 +12,22 @@ library(jsonlite)
 # ============================================
 GOOGLE_SHEET_URL <- Sys.getenv("GOOGLE_SHEET_URL", "YOUR_GOOGLE_SHEET_URL_HERE")
 
-# ---- Google Sheets auth (service account via Connect secret) ----
-key_json <- Sys.getenv("GOOGLE_SERVICE_ACCOUNT_KEY_JSON", unset = "")
-if (!nzchar(key_json)) {
-  stop("Missing GOOGLE_SERVICE_ACCOUNT_KEY_JSON. Set it as a Secret in Posit Connect Cloud.")
+b64 <- Sys.getenv("GOOGLE_SERVICE_ACCOUNT_KEY_JSON_B64", unset = "")
+if (!nzchar(b64)) {
+  stop("Missing GOOGLE_SERVICE_ACCOUNT_KEY_JSON_B64. Set it as a Secret in Posit Connect Cloud.")
 }
 
-# If the JSON was pasted as a single line containing '\\n', turn those into real newlines
-key_json <- gsub("\\\\n", "\n", key_json)
+key_json <- rawToChar(openssl::base64_decode(b64))
 
-# Write the JSON to a temp file (writeChar avoids weird line splitting)
 key_file <- tempfile(fileext = ".json")
 writeChar(key_json, key_file, eos = NULL)
 
-# Optional: validate JSON (helps fail fast with a clearer error)
+# Validate JSON early
 tryCatch(
   jsonlite::fromJSON(key_file),
-  error = function(e) stop("Service account JSON is not valid. Re-check the Secret value. Details: ", e$message)
+  error = function(e) stop("Decoded service account JSON is not valid. Details: ", e$message)
 )
 
-# Fetch a token explicitly using the service account
 token <- gargle::token_fetch(
   scopes = "https://www.googleapis.com/auth/spreadsheets",
   cred   = gargle::credentials_service_account(path = key_file)

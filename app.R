@@ -5,14 +5,15 @@ library(sf)
 library(tigris)
 library(shinymanager)
 library(googlesheets4)
-#library(gargle)
+library(gargle)
 library(jsonlite)
 # ============================================
 # CONFIGURATION
 # ============================================
 GOOGLE_SHEET_URL <- Sys.getenv("GOOGLE_SHEET_URL", "YOUR_GOOGLE_SHEET_URL_HERE")
 
-gs4_auth(path = "service-account-key.json")
+#gs4_auth(path = "service-account-key.json")
+gs4_deauth()
 # ============================================
 # Load data
 # ============================================

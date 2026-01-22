@@ -31,7 +31,7 @@ get_db_conn <- function() {
     dbname   = Sys.getenv("DB_NAME", "postgres"),
     host     = Sys.getenv("DB_HOST", "db.cvzzrocsuglhumcqqykp.supabase.co"),
     port     = as.integer(Sys.getenv("DB_PORT", "6543")),
-    user     = Sys.getenv("DB_USER", "postgres"),
+    user     = Sys.getenv("DB_USER", "postgres.cvzzrocsuglhumcqqykp"),
     password = "cHANGCHENG166!",
     options  = "-c search_path=public"
   )

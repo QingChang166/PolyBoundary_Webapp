@@ -1,0 +1,19 @@
+# Sensitive files - NEVER COMMIT
+service-account-key.json
+*.json
+credentials.sqlite
+.Renviron
+
+# R files
+.Rhistory
+.RData
+.Rproj.user
+*.Rproj
+
+# Auth cache
+.secrets/
+.httr-oauth
+
+# System files
+.DS_Store
+Thumbs.db

@@ -410,27 +410,141 @@ server <- function(input, output, session) {
       )
   })
   
+  # Update map
   observe({
-    gaul <- gaul_poly(); gadm <- gadm_poly(); m <- mode()
-    map_proxy <- leafletProxy("map") %>% clearShapes()
+    m <- mode()
+    gaul <- gaul_poly()
+    gadm <- gadm_poly()
     
-    if (m %in% c("before", "both") && nrow(gaul) > 0) {
-      map_proxy <- map_proxy %>% addPolygons(data = gaul, color = "green", weight = 2, label = ~name_prev)
-    }
-    if (m %in% c("after", "both") && nrow(gadm) > 0) {
-      map_proxy <- map_proxy %>% addPolygons(data = gadm, color = "red", weight = 2, label = ~name_curr)
+    if (nrow(gaul) > 0) gaul <- sf::st_transform(gaul, 4326)
+    if (nrow(gadm) > 0) gadm <- sf::st_transform(gadm, 4326)
+    
+    show_gaul <- (m %in% c("before", "both")) && nrow(gaul) > 0
+    show_gadm <- (m %in% c("after",  "both")) && nrow(gadm) > 0
+    
+    bbs <- list()
+    if (show_gaul) bbs <- c(bbs, list(sf::st_bbox(gaul)))
+    if (show_gadm) bbs <- c(bbs, list(sf::st_bbox(gadm)))
+    if (length(bbs) == 0) return(invisible(NULL))
+    
+    bb <- c(
+      xmin = min(vapply(bbs, `[[`, numeric(1), "xmin")),
+      ymin = min(vapply(bbs, `[[`, numeric(1), "ymin")),
+      xmax = max(vapply(bbs, `[[`, numeric(1), "xmax")),
+      ymax = max(vapply(bbs, `[[`, numeric(1), "ymax"))
+    )
+    
+    gaul_label_col <- "name_prev"
+    gadm_label_col <- "name_curr"
+    
+    map_proxy <- leafletProxy("map") %>%
+      clearShapes() %>%
+      clearMarkers()
+    
+    if (show_gaul) {
+      gaul$label_txt <- as.character(gaul[[gaul_label_col]])
+      map_proxy <- map_proxy %>% addPolygons(
+        data = gaul, color = "green", weight = 2, opacity = 1, fill = FALSE,
+        label = ~label_txt,
+        highlightOptions = highlightOptions(weight = 3, bringToFront = TRUE)
+      )
     }
     
-    all_bounds <- rbind(if(nrow(gaul)>0) st_bbox(gaul) else NULL, if(nrow(gadm)>0) st_bbox(gadm) else NULL)
-    if (!is.null(all_bounds)) {
-      map_proxy %>% fitBounds(min(all_bounds[,1]), min(all_bounds[,2]), max(all_bounds[,3]), max(all_bounds[,4]))
+    if (show_gadm) {
+      gadm$label_txt <- as.character(gadm[[gadm_label_col]])
+      map_proxy <- map_proxy %>% addPolygons(
+        data = gadm, color = "red", weight = 2, opacity = 1, fill = FALSE,
+        label = ~label_txt,
+        highlightOptions = highlightOptions(weight = 3, bringToFront = TRUE)
+      )
+    }
+    
+    map_proxy %>% fitBounds(
+      unname(bb["xmin"]), unname(bb["ymin"]),
+      unname(bb["xmax"]), unname(bb["ymax"])
+    )
+  })
+  
+  #observeEvent(input$prev, { i <- idx() - 1; if(i < 1) i <- n; idx(i); save_status(""); just_answered(NULL) })
+  #observeEvent(input$next_butt, { i <- idx() + 1; if(i > n) i <- 1; idx(i); save_status(""); just_answered(NULL) })
+  
+  # Navigation with warning for unanswered cases
+  observeEvent(input$prev, {
+    current_uid <- summary_table[idx(), ]$unique_id
+    
+    # Check if current case has been answered
+    if (!(current_uid %in% reviewed_cases())) {
+      showModal(modalDialog(
+        title = "⚠️ Unanswered Case",
+        "You haven't answered this case yet. Are you sure you want to navigate away?",
+        footer = tagList(
+          actionButton("cancel_nav_prev", "Stay Here", class = "btn-primary"),
+          actionButton("confirm_nav_prev", "Leave Anyway", class = "btn-secondary")
+        ),
+        easyClose = TRUE
+      ))
+    } else {
+      # Navigate normally
+      i <- idx() - 1
+      if (i < 1) i <- n
+      idx(i)
+      save_status("")
+      just_answered(NULL)  # Clear the "just answered" flag when navigating
     }
   })
   
-  observeEvent(input$prev, { i <- idx() - 1; if(i < 1) i <- n; idx(i); save_status(""); just_answered(NULL) })
-  observeEvent(input$next_butt, { i <- idx() + 1; if(i > n) i <- 1; idx(i); save_status(""); just_answered(NULL) })
+  observeEvent(input$next_butt, {
+    current_uid <- summary_table[idx(), ]$unique_id
+    
+    # Check if current case has been answered
+    if (!(current_uid %in% reviewed_cases())) {
+      showModal(modalDialog(
+        title = "⚠️ Unanswered Case",
+        "You haven't answered this case yet. Are you sure you want to navigate away?",
+        footer = tagList(
+          actionButton("cancel_nav_next", "Stay Here", class = "btn-primary"),
+          actionButton("confirm_nav_next", "Leave Anyway", class = "btn-secondary")
+        ),
+        easyClose = TRUE
+      ))
+    } else {
+      # Navigate normally
+      i <- idx() + 1
+      if (i > n) i <- 1
+      idx(i)
+      save_status("")
+      just_answered(NULL)  # Clear the "just answered" flag when navigating
+    }
+  })
   
-
+  # Handle modal responses for Previous
+  observeEvent(input$cancel_nav_prev, {
+    removeModal()
+  })
+  
+  observeEvent(input$confirm_nav_prev, {
+    removeModal()
+    i <- idx() - 1
+    if (i < 1) i <- n
+    idx(i)
+    save_status("")
+    just_answered(NULL)  # Clear the "just answered" flag when navigating
+  })
+  
+  # Handle modal responses for Next
+  observeEvent(input$cancel_nav_next, {
+    removeModal()
+  })
+  
+  observeEvent(input$confirm_nav_next, {
+    removeModal()
+    i <- idx() + 1
+    if (i > n) i <- 1
+    idx(i)
+    save_status("")
+    just_answered(NULL)  # Clear the "just answered" flag when navigating
+  })
+  
   
   observeEvent(input$correct,  { upsert_label(answer = "Yes", note = input$note) })
   observeEvent(input$wrong,    { upsert_label(answer = "No", note = input$note) })

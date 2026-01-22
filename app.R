@@ -6,13 +6,13 @@ library(tigris)
 library(shinymanager)
 library(googlesheets4)
 library(gargle)
-
+library(jsonlite)
 # ============================================
 # CONFIGURATION
 # ============================================
 GOOGLE_SHEET_URL <- Sys.getenv("GOOGLE_SHEET_URL", "YOUR_GOOGLE_SHEET_URL_HERE")
 
-
+gs4_auth(path = "service-account-key.json")
 # ============================================
 # Load data
 # ============================================
@@ -243,7 +243,7 @@ ui <- secure_app(ui, enable_admin = TRUE)
 # ============================================
 server <- function(input, output, session) {
   
-  gs4_auth(path = "service-account-key.json")
+  
   
   # Password authentication
   passphrase <- Sys.getenv("SHINY_MANAGER_PASSPHRASE")

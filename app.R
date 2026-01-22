@@ -12,27 +12,46 @@ library(jsonlite)
 # ============================================
 GOOGLE_SHEET_URL <- Sys.getenv("GOOGLE_SHEET_URL", "YOUR_GOOGLE_SHEET_URL_HERE")
 
+# ================= Google Sheets Service Account Auth =================
+options(gargle_quiet = FALSE)
+options(gargle_oauth_cache = FALSE)  # don't try to cache OAuth tokens on Connect
+
 b64 <- Sys.getenv("GOOGLE_SERVICE_ACCOUNT_KEY_JSON_B64", unset = "")
-if (!nzchar(b64)) {
-  stop("Missing GOOGLE_SERVICE_ACCOUNT_KEY_JSON_B64. Set it as a Secret in Posit Connect Cloud.")
-}
+if (!nzchar(b64)) stop("Missing GOOGLE_SERVICE_ACCOUNT_KEY_JSON_B64 secret.")
 
 key_json <- rawToChar(openssl::base64_decode(b64))
 
 key_file <- tempfile(fileext = ".json")
 writeChar(key_json, key_file, eos = NULL)
 
-# Validate JSON early
-tryCatch(
-  jsonlite::fromJSON(key_file),
-  error = function(e) stop("Decoded service account JSON is not valid. Details: ", e$message)
+# Validate JSON and print which service account email you're using
+sa <- jsonlite::fromJSON(key_file)
+message("Service account email: ", sa$client_email)
+
+# IMPORTANT: force googlesheets4 to use ONLY this service account key
+googlesheets4::gs4_deauth()
+
+# Force a non-interactive service-account token
+scopes <- c(
+  "https://www.googleapis.com/auth/spreadsheets",
+  "https://www.googleapis.com/auth/drive.readonly"
 )
 
-token <- gargle::token_fetch(
-  scopes = "https://www.googleapis.com/auth/spreadsheets",
-  cred   = gargle::credentials_service_account(path = key_file)
+token <- tryCatch(
+  gargle::token_fetch(
+    scopes = scopes,
+    cred   = gargle::credentials_service_account(path = key_file)
+  ),
+  error = function(e) {
+    stop("token_fetch() failed: ", conditionMessage(e))
+  }
 )
 
+if (is.null(token) || !inherits(token, "gargle_token")) {
+  stop("Service account token was not created (token is NULL or not a gargle_token).")
+}
+
+# Authenticate googlesheets4 with the token we just created
 googlesheets4::gs4_auth(token = token)
 # ============================================
 # Load data

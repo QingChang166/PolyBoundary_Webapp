@@ -191,16 +191,20 @@ server <- function(input, output, session) {
     })
   })
   
-  # Database Upsert Function
-  upsert_label <- function(answer = NA_character_, note = NA_character_, year = NA_character_, month = NA_character_) {
+  # Database Insert Function - Always create new records
+  insert_label <- function(answer = NA_character_, note = NA_character_, year = NA_character_, month = NA_character_) {
     row <- summary_table[idx(), , drop = FALSE]
     uid <- row$unique_id[1]
     current_user <- reactiveValuesToList(res_auth)$user %||% "unknown"
     
+    # Get existing values if not provided
     current_cache <- db_cache()
     existing_row <- current_cache[current_cache$unique_id == uid, ]
     
     if (nrow(existing_row) > 0) {
+      # Get the most recent entry for this unique_id
+      existing_row <- existing_row[order(existing_row$timestamp, decreasing = TRUE), ][1, ]
+      
       if (is.na(answer)) answer <- existing_row$user_answer[1]
       if (is.na(note))   note   <- existing_row$note[1]
       if (is.na(year))   year   <- if("change_year" %in% names(existing_row)) existing_row$change_year[1] else NA_character_
@@ -210,17 +214,10 @@ server <- function(input, output, session) {
     con <- get_db_conn()
     on.exit(dbDisconnect(con))
     
+    # Changed to INSERT only - no conflict resolution
     query <- "
       INSERT INTO responses (unique_id, user_answer, note, timestamp, username, country, algo_decision, openai_decision, change_year, change_month)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      ON CONFLICT (unique_id) 
-      DO UPDATE SET 
-        user_answer = EXCLUDED.user_answer,
-        note = EXCLUDED.note,
-        timestamp = EXCLUDED.timestamp,
-        username = EXCLUDED.username,
-        change_year = EXCLUDED.change_year,
-        change_month = EXCLUDED.change_month;
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
     "
     
     tryCatch({
@@ -240,9 +237,10 @@ server <- function(input, output, session) {
       save_status(paste("✓ Database Updated", format(Sys.time(), "%H:%M:%S")))
       just_answered(uid)
       
+      # Reload all data from database
       new_data <- dbGetQuery(con, "SELECT * FROM responses")
       db_cache(new_data)
-      reviewed_cases(as.numeric(new_data$unique_id))
+      reviewed_cases(unique(as.numeric(new_data$unique_id)))
       
     }, error = function(e) {
       save_status(paste("✗ Error:", substr(e$message, 1, 50)))
@@ -267,7 +265,7 @@ server <- function(input, output, session) {
       month_val <- if(nrow(existing) > 0 && "change_month" %in% names(existing)) existing$change_month[1] else ""
       
       div(
-        style = "margin-top: 10px; padding: 10px; background-color: #f8f9fa; border-radius: 4px;",
+        style = "margin-top: 10px; padding: 8px; background-color: #f8f9fa; border-radius: 4px;",
         fluidRow(
           column(6, 
                  textInput("change_year", "Year", value = year_val, 
@@ -275,10 +273,12 @@ server <- function(input, output, session) {
           ),
           column(6, 
                  textInput("change_month", "Month", value = month_val, 
-                           placeholder = "e.g., 1-12", width = "100%")
+                           placeholder = "1-12", width = "100%")
           )
         ),
-        actionButton("save_date", "Save Date", width = "100%", class = "btn-sm pf-btn btn-outline-primary")
+        div(style = "margin-top: 8px;",
+            actionButton("save_date", "Save Date", width = "100%", class = "btn-sm pf-btn btn-outline-primary")
+        )
       )
     } else {
       NULL
@@ -545,22 +545,22 @@ server <- function(input, output, session) {
   
   
   observeEvent(input$correct,  { 
-    upsert_label(answer = "Yes", note = input$note)
+    insert_label(answer = "Yes", note = input$note)
     show_date_fields(TRUE)  # Show date fields when user clicks "Yes"
   })
   observeEvent(input$wrong,    { 
-    upsert_label(answer = "No", note = input$note)
+    insert_label(answer = "No", note = input$note)
     show_date_fields(FALSE)  # Hide date fields for other answers
   })
   observeEvent(input$not_sure, { 
-    upsert_label(answer = "Not Sure", note = input$note)
+    insert_label(answer = "Not Sure", note = input$note)
     show_date_fields(FALSE)  # Hide date fields for other answers
   })
-  observeEvent(input$save_note, { upsert_label(note = input$note) })
+  observeEvent(input$save_note, { insert_label(note = input$note) })
   
   # NEW: Save date information
   observeEvent(input$save_date, {
-    upsert_label(year = input$change_year, month = input$change_month)
+    insert_label(year = input$change_year, month = input$change_month)
   })
   
   observe({
@@ -568,15 +568,23 @@ server <- function(input, output, session) {
     cached <- db_cache()
     existing <- cached[cached$unique_id == uid, ]
     
-    note_val <- if(nrow(existing) > 0) existing$note[1] else ""
-    updateTextAreaInput(session, "note", value = note_val)
-    
-    # NEW: Show date fields if previous answer was "Yes"
-    if(nrow(existing) > 0 && existing$user_answer[1] == "Yes") {
-      show_date_fields(TRUE)
+    # Get the most recent entry for this unique_id
+    if(nrow(existing) > 0) {
+      existing <- existing[order(existing$timestamp, decreasing = TRUE), ][1, ]
+      note_val <- existing$note[1]
+      
+      # Show date fields if most recent answer was "Yes"
+      if(existing$user_answer[1] == "Yes") {
+        show_date_fields(TRUE)
+      } else {
+        show_date_fields(FALSE)
+      }
     } else {
+      note_val <- ""
       show_date_fields(FALSE)
     }
+    
+    updateTextAreaInput(session, "note", value = note_val)
   })
   
   output$previous_answer_info <- renderUI({
@@ -587,6 +595,9 @@ server <- function(input, output, session) {
     prev <- cached[cached$unique_id == uid, ]
     
     if (nrow(prev) > 0) {
+      # Get the most recent entry
+      prev <- prev[order(prev$timestamp, decreasing = TRUE), ][1, ]
+      
       ans_class <- switch(prev$user_answer[1], "Yes"="badge-success", "No"="badge-danger", "Not Sure"="badge-warning", "badge-secondary")
       
       # Build date info if available
@@ -600,9 +611,9 @@ server <- function(input, output, session) {
       }
       
       div(style = "padding: 8px; background: #f8f9fa; border-left: 3px solid #007bff;",
-          p(style="font-size:11px; font-weight:bold;", "Previous Review:"),
+          p(style="font-size:11px; font-weight:bold;", "Most Recent Review:"),
           span(class=paste("badge", ans_class), paste0(prev$user_answer[1], date_info)),
-          span(style="font-size:10px; color:#666;", paste0(" by ", prev$username[1]))
+          span(style="font-size:10px; color:#666;", paste0(" by ", prev$username[1], " at ", format(as.POSIXct(prev$timestamp[1]), "%Y-%m-%d %H:%M")))
       )
     } else {
       div(class="unanswered-warning", p(class="unanswered-warning-text", "⚠️ Needs review"))

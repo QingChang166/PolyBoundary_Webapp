@@ -95,7 +95,6 @@ ui <- fluidPage(
   #change_year, #change_month { height: 28px !important; font-size: 10px !important; padding: 2px 6px !important; }
   .form-group label { font-size: 10px !important; font-weight: bold !important; margin-bottom: 2px !important; }
   .form-group { margin-bottom: 8px !important; }
-
 ")),
   
   titlePanel("Information Panel"),
@@ -127,9 +126,9 @@ ui <- fluidPage(
       uiOutput("save_status"),
       uiOutput("previous_answer_info"),
       hr(),
-      h5("Your Note (DON'T FORGET TO SAVE YOUR NOTE!)"),
+      h5("Your Note"),
       textAreaInput("note", label = NULL, value = "", placeholder = "Optional note...", width = "100%", height = "90px"),
-      actionButton("save_note", "Save note", width = "100%", class = "btn-sm pf-btn btn-outline-secondary"),
+      actionButton("save_note", "Save Note & Date", width = "100%", class = "btn-sm pf-btn btn-outline-secondary"),
       hr(),
       h5("Navigate to..."),
       fluidRow(
@@ -168,6 +167,7 @@ server <- function(input, output, session) {
   db_cache <- reactiveVal(data.frame())
   just_answered <- reactiveVal(NULL)
   show_date_fields <- reactiveVal(FALSE)  # NEW: Track if date fields should be shown
+  current_answer <- reactiveVal("")  # NEW: Track the current answer selection
   
   # Initial Load from Database
   isolate({
@@ -545,22 +545,19 @@ server <- function(input, output, session) {
   
   
   observeEvent(input$correct,  { 
-    insert_label(answer = "Yes", note = input$note)
+    current_answer("Yes")
     show_date_fields(TRUE)  # Show date fields when user clicks "Yes"
   })
   observeEvent(input$wrong,    { 
-    insert_label(answer = "No", note = input$note)
+    current_answer("No")
     show_date_fields(FALSE)  # Hide date fields for other answers
   })
   observeEvent(input$not_sure, { 
-    insert_label(answer = "Not Sure", note = input$note)
+    current_answer("Not Sure")
     show_date_fields(FALSE)  # Hide date fields for other answers
   })
-  observeEvent(input$save_note, { insert_label(note = input$note) })
-  
-  # NEW: Save date information
-  observeEvent(input$save_date, {
-    insert_label(year = input$change_year, month = input$change_month)
+  observeEvent(input$save_note, { 
+    insert_label(answer = current_answer(), note = input$note, year = input$change_year, month = input$change_month)
   })
   
   observe({
@@ -572,15 +569,36 @@ server <- function(input, output, session) {
     if(nrow(existing) > 0) {
       existing <- existing[order(existing$timestamp, decreasing = TRUE), ][1, ]
       note_val <- existing$note[1]
+      answer_val <- existing$user_answer[1]
+      
+      # Set the current answer
+      current_answer(answer_val)
       
       # Show date fields if most recent answer was "Yes"
-      if(existing$user_answer[1] == "Yes") {
+      if(answer_val == "Yes") {
         show_date_fields(TRUE)
+        
+        # Update year and month fields with most recent values
+        year_val <- if("change_year" %in% names(existing) && !is.na(existing$change_year[1]) && existing$change_year[1] != "") {
+          existing$change_year[1]
+        } else {
+          ""
+        }
+        
+        month_val <- if("change_month" %in% names(existing) && !is.na(existing$change_month[1]) && existing$change_month[1] != "") {
+          existing$change_month[1]
+        } else {
+          ""
+        }
+        
+        updateTextInput(session, "change_year", value = year_val)
+        updateTextInput(session, "change_month", value = month_val)
       } else {
         show_date_fields(FALSE)
       }
     } else {
       note_val <- ""
+      current_answer("")
       show_date_fields(FALSE)
     }
     

@@ -93,7 +93,8 @@ ui <- fluidPage(
   .leaflet-tooltip.after-label { border-left: 3px solid red; }
   
   #change_year, #change_month { height: 28px !important; font-size: 10px !important; padding: 2px 6px !important; }
-  #change_year + label, #change_month + label { font-size: 10px !important; font-weight: bold !important; }
+  .form-group label { font-size: 10px !important; font-weight: bold !important; margin-bottom: 2px !important; }
+  .form-group { margin-bottom: 8px !important; }
 
 ")),
   

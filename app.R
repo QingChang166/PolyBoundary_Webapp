@@ -91,6 +91,10 @@ ui <- fluidPage(
   
   .leaflet-tooltip.before-label { border-left: 3px solid green; }
   .leaflet-tooltip.after-label { border-left: 3px solid red; }
+  
+  #change_year, #change_month { height: 28px !important; font-size: 10px !important; padding: 2px 6px !important; }
+  #change_year + label, #change_month + label { font-size: 10px !important; font-weight: bold !important; }
+
 ")),
   
   titlePanel("Information Panel"),

@@ -8,20 +8,21 @@ library(RPostgres) # Required for Supabase/Postgres connection
 library(DBI)      # Sometimes required for database interaction functions
 library(dbplyr)
 
+
 # ============================================
 # DATABASE CONNECTION CONFIGURATION
 # ============================================
 
 get_db_conn <- function() {
  
-  pooler_host <- Sys.getenv("DB_POOLER_HOST", "aws-0-us-east-1.pooler.supabase.com")
+  pooler_host <- Sys.getenv("DB_POOLER_HOST")
   
   dbConnect(
     Postgres(),
-    dbname   = Sys.getenv("DB_NAME", "postgres"),
+    dbname   = Sys.getenv("DB_NAME"),
     host     = pooler_host,  # Use pooler, not direct connection
-    port     = as.integer(Sys.getenv("DB_PORT", "6543")),  # Pooler port
-    user     = Sys.getenv("DB_USER", "postgres.cvzzrocsuglhumcqqykp"),
+    port     = as.integer(Sys.getenv("DB_PORT")),  # Pooler port
+    user     = Sys.getenv("DB_USER"),
     password = Sys.getenv("DB_PASSWORD"),
     sslmode  = "require"  # Important for Supabase
   )

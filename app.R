@@ -7,29 +7,13 @@ library(shinymanager)
 library(RPostgres) # Required for Supabase/Postgres connection
 library(DBI)      # Sometimes required for database interaction functions
 library(dbplyr)
-# ============================================
-# DATABASE CONNECTION CONFIGURATION
-# ============================================
-# We use a function to get a fresh connection for each transaction
-#get_db_conn <- function() {
-#  dbConnect(
-#    Postgres(),
-#    dbname   = "postgres",
-#    host     = Sys.getenv("DB_HOST"),
-#    port     = as.integer(Sys.getenv("DB_PORT")),
-#    user     = Sys.getenv("DB_USER"),
-#    password = Sys.getenv("DB_PASSWORD")
-#  )
-#}
 
 # ============================================
 # DATABASE CONNECTION CONFIGURATION
 # ============================================
 
 get_db_conn <- function() {
-  # RECOMMENDED: Use Supabase Connection Pooler for cloud deployments
-  # This resolves IPv6/network issues with Posit Connect Cloud
-  
+ 
   pooler_host <- Sys.getenv("DB_POOLER_HOST", "aws-0-us-east-1.pooler.supabase.com")
   
   dbConnect(
@@ -43,69 +27,6 @@ get_db_conn <- function() {
   )
 }
 
-# ============================================
-# Initialize credentials table if needed
-# ============================================
-#initialize_credentials <- function() {
-#  tryCatch({
-#    con <- get_db_conn()
-#    on.exit(dbDisconnect(con))
-    
-    # Check if credentials table exists
-#    if (!dbExistsTable(con, "credentials")) {
-      # Create credentials table
-#      create_db(
-#        credentials_data = data.frame(
-#          user = c("admin"),
-#          password = c("admin123"), # Change this!
-#          admin = c(TRUE),
-#          stringsAsFactors = FALSE
-#        ),
-#        sqlite_path = ":memory:", # Temporary, will be replaced
-#        passphrase = Sys.getenv("SHINY_MANAGER_PASSPHRASE", "default_passphrase")
-#      )
-      
-      # Then manually create in Postgres
-#      dbExecute(con, "
-#        CREATE TABLE IF NOT EXISTS credentials (
-#          user TEXT PRIMARY KEY,
-#          password TEXT,
-#          admin BOOLEAN,
-#          expire TEXT,
-#          applications TEXT
-#        )
-#      ")
-      
-      # Hash password (you should use bcrypt in production)
- #     dbExecute(con, "
-#        INSERT INTO credentials (user, password, admin)
-#        VALUES ('admin', '$2a$10$...', TRUE)
-#        ON CONFLICT (user) DO NOTHING
-#      ")
- #   }
-    
-    # Create responses table if not exists
-  #  if (!dbExistsTable(con, "responses")) {
-  #    dbExecute(con, "
-  #      CREATE TABLE IF NOT EXISTS responses (
-  #        unique_id INTEGER PRIMARY KEY,
-  #        user_answer TEXT,
-  #        note TEXT,
-  #        timestamp TIMESTAMP,
-  #        username TEXT,
-  #        country TEXT,
-  #        algo_decision TEXT,
-  #        openai_decision TEXT
-  #      )
-  #    ")
-  #  }
-  #}, error = function(e) {
-  #  warning("Could not initialize database: ", e$message)
-  #})
-#}
-
-# Initialize on startup
-#initialize_credentials()
 
 # ============================================
 # Load local RDS data
@@ -203,16 +124,6 @@ ui <- fluidPage(
   )
 )
 
-# ============================================
-# CORRECT WAY: Use SQLite for shinymanager
-# ============================================
-# Option 1: Simple authentication without database
-#credentials <- data.frame(
-#  user = c("admin", "user1"),
-#  password = c("123456", "user123"),
-#  admin = c(TRUE, FALSE),
-#  stringsAsFactors = FALSE
-#)
 
 ui <- secure_app(ui, enable_admin = T)
 
@@ -220,11 +131,6 @@ ui <- secure_app(ui, enable_admin = T)
 # SERVER
 # ============================================
 server <- function(input, output, session) {
-  
-  # FIXED: Use check_credentials with dataframe
-  #res_auth <- secure_server(
-  #  check_credentials = check_credentials(credentials)
-  #)
   
   res_auth <- secure_server(
     check_credentials = check_credentials(
@@ -472,9 +378,7 @@ server <- function(input, output, session) {
     )
   })
   
-  #observeEvent(input$prev, { i <- idx() - 1; if(i < 1) i <- n; idx(i); save_status(""); just_answered(NULL) })
-  #observeEvent(input$next_butt, { i <- idx() + 1; if(i > n) i <- 1; idx(i); save_status(""); just_answered(NULL) })
-  
+
   # Navigation with warning for unanswered cases
   observeEvent(input$prev, {
     current_uid <- summary_table[idx(), ]$unique_id

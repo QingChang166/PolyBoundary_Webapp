@@ -275,9 +275,6 @@ server <- function(input, output, session) {
                  textInput("change_month", "Month", value = month_val, 
                            placeholder = "1-12", width = "100%")
           )
-        ),
-        div(style = "margin-top: 8px;",
-            actionButton("save_date", "Save Date", width = "100%", class = "btn-sm pf-btn btn-outline-primary")
         )
       )
     } else {
@@ -556,8 +553,12 @@ server <- function(input, output, session) {
     current_answer("Not Sure")
     show_date_fields(FALSE)  # Hide date fields for other answers
   })
+  
+  # CHANGED: Single save button now saves everything
   observeEvent(input$save_note, { 
-    insert_label(answer = current_answer(), note = input$note, year = input$change_year, month = input$change_month)
+    year_input <- if(show_date_fields()) input$change_year else NA_character_
+    month_input <- if(show_date_fields()) input$change_month else NA_character_
+    insert_label(answer = current_answer(), note = input$note, year = year_input, month = month_input)
   })
   
   observe({
@@ -605,6 +606,7 @@ server <- function(input, output, session) {
     updateTextAreaInput(session, "note", value = note_val)
   })
   
+  # CHANGED: Removed date info from Most Recent Review display
   output$previous_answer_info <- renderUI({
     uid <- summary_table[idx(), ]$unique_id
     if (!is.null(just_answered()) && just_answered() == uid) return(NULL)
@@ -618,19 +620,9 @@ server <- function(input, output, session) {
       
       ans_class <- switch(prev$user_answer[1], "Yes"="badge-success", "No"="badge-danger", "Not Sure"="badge-warning", "badge-secondary")
       
-      # Build date info if available
-      date_info <- ""
-      if ("change_year" %in% names(prev) && "change_month" %in% names(prev)) {
-        year <- prev$change_year[1]
-        month <- prev$change_month[1]
-        if (!is.na(year) && year != "" && !is.na(month) && month != "") {
-          date_info <- paste0(" (", year, "/", month, ")")
-        }
-      }
-      
       div(style = "padding: 8px; background: #f8f9fa; border-left: 3px solid #007bff;",
           p(style="font-size:11px; font-weight:bold;", "Most Recent Review:"),
-          span(class=paste("badge", ans_class), paste0(prev$user_answer[1], date_info)),
+          span(class=paste("badge", ans_class), prev$user_answer[1]),
           span(style="font-size:10px; color:#666;", paste0(" by ", prev$username[1], " at ", format(as.POSIXct(prev$timestamp[1]), "%Y-%m-%d %H:%M")))
       )
     } else {

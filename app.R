@@ -78,6 +78,19 @@ ui <- fluidPage(
   .save-status { padding: 5px; margin: 5px 0; border-radius: 3px; font-size: 10px; text-align: center; }
   .save-success { background-color: #d4edda; color: #155724; }
   .save-error { background-color: #f8d7da; color: #721c24; }
+  
+  .leaflet-tooltip { 
+    background-color: rgba(255, 255, 255, 0.95); 
+    border: 1px solid #999; 
+    border-radius: 3px; 
+    padding: 3px 6px; 
+    font-size: 11px; 
+    font-weight: bold;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  }
+  
+  .leaflet-tooltip.before-label { border-left: 3px solid green; }
+  .leaflet-tooltip.after-label { border-left: 3px solid red; }
 ")),
   
   titlePanel("Information Panel"),
@@ -105,6 +118,7 @@ ui <- fluidPage(
         column(4, actionButton("wrong",    "No",       width = "100%", class = "btn-sm pf-btn btn-outline-secondary")),
         column(4, actionButton("not_sure", "Not sure", width = "100%", class = "btn-sm pf-btn btn-outline-secondary"))
       ),
+      uiOutput("date_inputs"),
       uiOutput("save_status"),
       uiOutput("previous_answer_info"),
       hr(),
@@ -143,11 +157,12 @@ server <- function(input, output, session) {
   # Reactive state
   n <- nrow(summary_table)
   idx <- reactiveVal(1)
-  mode <- reactiveVal("both")
+  mode <- reactiveVal("before")  # CHANGED: Default to "before" instead of "both"
   save_status <- reactiveVal("")
   reviewed_cases <- reactiveVal(numeric())
   db_cache <- reactiveVal(data.frame())
   just_answered <- reactiveVal(NULL)
+  show_date_fields <- reactiveVal(FALSE)  # NEW: Track if date fields should be shown
   
   # Initial Load from Database
   isolate({
@@ -172,7 +187,7 @@ server <- function(input, output, session) {
   })
   
   # Database Upsert Function
-  upsert_label <- function(answer = NA_character_, note = NA_character_) {
+  upsert_label <- function(answer = NA_character_, note = NA_character_, year = NA_character_, month = NA_character_) {
     row <- summary_table[idx(), , drop = FALSE]
     uid <- row$unique_id[1]
     current_user <- reactiveValuesToList(res_auth)$user %||% "unknown"
@@ -183,20 +198,24 @@ server <- function(input, output, session) {
     if (nrow(existing_row) > 0) {
       if (is.na(answer)) answer <- existing_row$user_answer[1]
       if (is.na(note))   note   <- existing_row$note[1]
+      if (is.na(year))   year   <- if("change_year" %in% names(existing_row)) existing_row$change_year[1] else NA_character_
+      if (is.na(month))  month  <- if("change_month" %in% names(existing_row)) existing_row$change_month[1] else NA_character_
     }
     
     con <- get_db_conn()
     on.exit(dbDisconnect(con))
     
     query <- "
-      INSERT INTO responses (unique_id, user_answer, note, timestamp, username, country, algo_decision, openai_decision)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      INSERT INTO responses (unique_id, user_answer, note, timestamp, username, country, algo_decision, openai_decision, change_year, change_month)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT (unique_id) 
       DO UPDATE SET 
         user_answer = EXCLUDED.user_answer,
         note = EXCLUDED.note,
         timestamp = EXCLUDED.timestamp,
-        username = EXCLUDED.username;
+        username = EXCLUDED.username,
+        change_year = EXCLUDED.change_year,
+        change_month = EXCLUDED.change_month;
     "
     
     tryCatch({
@@ -208,7 +227,9 @@ server <- function(input, output, session) {
         current_user, 
         as.character(row$iso3c_prev[1]), 
         as.character(row$type[1]), 
-        as.character(row$openai_assessment[1])
+        as.character(row$openai_assessment[1]),
+        ifelse(is.na(year), "", as.character(year)),
+        ifelse(is.na(month), "", as.character(month))
       ))
       
       save_status(paste("✓ Database Updated", format(Sys.time(), "%H:%M:%S")))
@@ -228,6 +249,35 @@ server <- function(input, output, session) {
     if (status == "") return(NULL)
     class_name <- if (grepl("^✓", status)) "save-success" else "save-error"
     div(class = paste("save-status", class_name), status)
+  })
+  
+  # NEW: Render date input fields when answer is "Yes"
+  output$date_inputs <- renderUI({
+    if (show_date_fields()) {
+      uid <- summary_table[idx(), ]$unique_id
+      cached <- db_cache()
+      existing <- cached[cached$unique_id == uid, ]
+      
+      year_val <- if(nrow(existing) > 0 && "change_year" %in% names(existing)) existing$change_year[1] else ""
+      month_val <- if(nrow(existing) > 0 && "change_month" %in% names(existing)) existing$change_month[1] else ""
+      
+      div(
+        style = "margin-top: 10px; padding: 10px; background-color: #f8f9fa; border-radius: 4px;",
+        fluidRow(
+          column(6, 
+                 textInput("change_year", "Year", value = year_val, 
+                           placeholder = "e.g., 2020", width = "100%")
+          ),
+          column(6, 
+                 textInput("change_month", "Month", value = month_val, 
+                           placeholder = "e.g., 1-12", width = "100%")
+          )
+        ),
+        actionButton("save_date", "Save Date", width = "100%", class = "btn-sm pf-btn btn-outline-primary")
+      )
+    } else {
+      NULL
+    }
   })
   
   output$progress_info <- renderUI({
@@ -263,12 +313,27 @@ server <- function(input, output, session) {
   # Display AI info
   output$agent_info <- renderUI({
     infor <- summary_table[idx(), , drop = FALSE]
+    gaul <- gaul_poly()
+    gadm <- gadm_poly()
     
     country <- if ("country" %in% names(infor)) infor$country[1] else infor$iso3c_prev[1]
     algo_decision <- infor$type[1]
     openai_decision <- infor$openai_assessment[1]
     openai_explanation <- infor$openai_explanation[1]
     openai_source <- infor$openai_sources[1]
+    
+    # Get polygon names
+    before_names <- if(nrow(gaul) > 0) {
+      paste(gaul$name_prev, collapse = ", ")
+    } else {
+      "N/A"
+    }
+    
+    after_names <- if(nrow(gadm) > 0) {
+      paste(gadm$name_curr, collapse = ", ")
+    } else {
+      "N/A"
+    }
     
     split_bullets <- function(x) {
       if (is.null(x) || length(x) == 0 || is.na(x)) return(character(0))
@@ -300,6 +365,8 @@ server <- function(input, output, session) {
     tagList(
       p(paste0("Algorithm prediction: ", algo_decision)),
       p(paste0("Country: ", country)),
+      p(HTML(paste0("<strong>Before:</strong> ", before_names))),
+      p(HTML(paste0("<strong>After:</strong> ", after_names))),
       p(paste0("OpenAI assessment: ", openai_decision)),
       
       p("OpenAI explanation:"),
@@ -355,22 +422,36 @@ server <- function(input, output, session) {
       clearShapes() %>%
       clearMarkers()
     
+    # CHANGED: Remove permanent labels, keep hover-only labels
     if (show_gaul) {
       gaul$label_txt <- as.character(gaul[[gaul_label_col]])
-      map_proxy <- map_proxy %>% addPolygons(
-        data = gaul, color = "green", weight = 2, opacity = 1, fill = FALSE,
-        label = ~label_txt,
-        highlightOptions = highlightOptions(weight = 3, bringToFront = TRUE)
-      )
+      
+      map_proxy <- map_proxy %>% 
+        addPolygons(
+          data = gaul, 
+          color = "green", 
+          weight = 2, 
+          opacity = 1, 
+          fill = FALSE,
+          label = ~label_txt,
+          highlightOptions = highlightOptions(weight = 3, bringToFront = TRUE)
+        )
     }
     
+    # CHANGED: Remove permanent labels, keep hover-only labels
     if (show_gadm) {
       gadm$label_txt <- as.character(gadm[[gadm_label_col]])
-      map_proxy <- map_proxy %>% addPolygons(
-        data = gadm, color = "red", weight = 2, opacity = 1, fill = FALSE,
-        label = ~label_txt,
-        highlightOptions = highlightOptions(weight = 3, bringToFront = TRUE)
-      )
+      
+      map_proxy <- map_proxy %>% 
+        addPolygons(
+          data = gadm, 
+          color = "red", 
+          weight = 2, 
+          opacity = 1, 
+          fill = FALSE,
+          label = ~label_txt,
+          highlightOptions = highlightOptions(weight = 3, bringToFront = TRUE)
+        )
     }
     
     map_proxy %>% fitBounds(
@@ -379,7 +460,7 @@ server <- function(input, output, session) {
     )
   })
   
-
+  
   # Navigation with warning for unanswered cases
   observeEvent(input$prev, {
     current_uid <- summary_table[idx(), ]$unique_id
@@ -458,10 +539,24 @@ server <- function(input, output, session) {
   })
   
   
-  observeEvent(input$correct,  { upsert_label(answer = "Yes", note = input$note) })
-  observeEvent(input$wrong,    { upsert_label(answer = "No", note = input$note) })
-  observeEvent(input$not_sure, { upsert_label(answer = "Not Sure", note = input$note) })
+  observeEvent(input$correct,  { 
+    upsert_label(answer = "Yes", note = input$note)
+    show_date_fields(TRUE)  # Show date fields when user clicks "Yes"
+  })
+  observeEvent(input$wrong,    { 
+    upsert_label(answer = "No", note = input$note)
+    show_date_fields(FALSE)  # Hide date fields for other answers
+  })
+  observeEvent(input$not_sure, { 
+    upsert_label(answer = "Not Sure", note = input$note)
+    show_date_fields(FALSE)  # Hide date fields for other answers
+  })
   observeEvent(input$save_note, { upsert_label(note = input$note) })
+  
+  # NEW: Save date information
+  observeEvent(input$save_date, {
+    upsert_label(year = input$change_year, month = input$change_month)
+  })
   
   observe({
     uid <- summary_table[idx(), ]$unique_id
@@ -470,6 +565,13 @@ server <- function(input, output, session) {
     
     note_val <- if(nrow(existing) > 0) existing$note[1] else ""
     updateTextAreaInput(session, "note", value = note_val)
+    
+    # NEW: Show date fields if previous answer was "Yes"
+    if(nrow(existing) > 0 && existing$user_answer[1] == "Yes") {
+      show_date_fields(TRUE)
+    } else {
+      show_date_fields(FALSE)
+    }
   })
   
   output$previous_answer_info <- renderUI({
@@ -481,9 +583,20 @@ server <- function(input, output, session) {
     
     if (nrow(prev) > 0) {
       ans_class <- switch(prev$user_answer[1], "Yes"="badge-success", "No"="badge-danger", "Not Sure"="badge-warning", "badge-secondary")
+      
+      # Build date info if available
+      date_info <- ""
+      if ("change_year" %in% names(prev) && "change_month" %in% names(prev)) {
+        year <- prev$change_year[1]
+        month <- prev$change_month[1]
+        if (!is.na(year) && year != "" && !is.na(month) && month != "") {
+          date_info <- paste0(" (", year, "/", month, ")")
+        }
+      }
+      
       div(style = "padding: 8px; background: #f8f9fa; border-left: 3px solid #007bff;",
           p(style="font-size:11px; font-weight:bold;", "Previous Review:"),
-          span(class=paste("badge", ans_class), prev$user_answer[1]),
+          span(class=paste("badge", ans_class), paste0(prev$user_answer[1], date_info)),
           span(style="font-size:10px; color:#666;", paste0(" by ", prev$username[1]))
       )
     } else {
